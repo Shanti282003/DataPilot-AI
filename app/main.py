@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.database import engine, Base
 from app.api.endpoints import router as api_router
+
+# Auto-create all database tables on startup
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -9,7 +13,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,8 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API endpoints
-app.include_router(api_router, prefix=settings.API_V1_STR, tags=["Analysis Engine"])
+app.include_router(api_router, prefix=settings.API_V1_STR, tags=["Analysis & Database"])
 
 
 @app.get("/")
