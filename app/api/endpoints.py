@@ -1,8 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from typing import List, Dict, Any
 from app.services.analyzer import AnalyzerService
-from app.models.schemas import AnalysisResponseDTO
+from app.services.ai_service import AIService
 from app.models.db_models import DatasetRecord
 from app.core.database import get_db
 from app.core.config import settings
@@ -10,30 +11,25 @@ from app.core.config import settings
 router = APIRouter()
 
 
+class ChatRequestDTO(BaseModel):
+    question: str
+
+
 @router.post("/analyze/upload", summary="Upload CSV dataset, analyze, and save to DB")
 async def upload_and_analyze(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Accepts CSV file, runs analysis, and saves snapshot to database."""
     valid_extensions = (".csv", ".tsv", ".txt")
     if not file.filename.lower().endswith(valid_extensions):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported format. Please upload CSV/TSV ({valid_extensions})."
-        )
+        raise HTTPException(status_code=400, detail="Please upload CSV/TSV.")
 
     file_bytes = await file.read()
-    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
-    if len(file_bytes) > max_bytes:
-        raise HTTPException(status_code=413, detail="File exceeds upload limit.")
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # 1. Run deterministic pipeline
     report = AnalyzerService.analyze_file(file_bytes, file.filename)
 
-    # 2. Save snapshot to Database
     record = DatasetRecord(
         filename=report["metadata"]["filename"],
         rows_count=report["quality_audit"]["total_rows"],
@@ -57,7 +53,6 @@ async def upload_and_analyze(
 
 @router.get("/datasets", summary="List all previously analyzed datasets")
 def list_datasets(db: Session = Depends(get_db)):
-    """Fetches list of all dataset upload histories."""
     records = db.query(DatasetRecord).order_by(DatasetRecord.created_at.desc()).all()
     return [
         {
@@ -75,7 +70,6 @@ def list_datasets(db: Session = Depends(get_db)):
 
 @router.get("/datasets/{dataset_id}", summary="Get cached analysis report by ID")
 def get_dataset_by_id(dataset_id: int, db: Session = Depends(get_db)):
-    """Loads a previously computed analysis instantly from DB cache."""
     record = db.query(DatasetRecord).filter(DatasetRecord.id == dataset_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Dataset record not found.")
@@ -90,4 +84,51 @@ def get_dataset_by_id(dataset_id: int, db: Session = Depends(get_db)):
         "statistics": record.stats_json,
         "outliers": record.outliers_json,
         "executive_insights": record.insights_json
+    }
+
+
+@router.post("/datasets/{dataset_id}/summary", summary="Generate AI Executive Summary for dataset")
+async def generate_ai_summary(dataset_id: int, db: Session = Depends(get_db)):
+    record = db.query(DatasetRecord).filter(DatasetRecord.id == dataset_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    fact_sheet = {
+        "dataset_summary": {
+            "file_name": record.filename,
+            "total_rows": record.rows_count,
+            "total_columns": record.columns_count,
+            "health_score": record.health_score,
+            "duplicate_rows": record.duplicate_rows
+        },
+        "schema_overview": {col: meta["detected_type"] for col, meta in record.schema_json.items()},
+        "top_prioritized_findings": record.insights_json[:8]
+    }
+
+    ai_summary = await AIService.generate_executive_summary(fact_sheet)
+    return {"dataset_id": record.id, "summary": ai_summary}
+
+
+@router.post("/datasets/{dataset_id}/chat", summary="Ask a natural language question about the dataset")
+async def ask_dataset_question(
+    dataset_id: int,
+    payload: ChatRequestDTO,
+    db: Session = Depends(get_db)
+):
+    record = db.query(DatasetRecord).filter(DatasetRecord.id == dataset_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    context = {
+        "quality": record.quality_json,
+        "schema": record.schema_json,
+        "statistics": record.stats_json,
+        "outliers": record.outliers_json
+    }
+
+    answer = await AIService.answer_question(payload.question, context)
+    return {
+        "dataset_id": record.id,
+        "question": payload.question,
+        "answer": answer
     }
