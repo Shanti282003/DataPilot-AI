@@ -1,0 +1,12 @@
+emp_id,name,department,salary,join_date,is_remote,rating
+E101,John Doe,Engineering,85000,2021-03-15,True,4.5
+E102,Jane Smith,Marketing,62000,2020-07-22,False,3.8
+E103,Bob Johnson,Engineering,91000,2019-01-10,True,4.9
+E104,Alice Brown,Sales,,2022-11-01,False,
+E105,Charlie White,Marketing,64000,2021-08-19,True,4.1
+E106,Eva Green,Engineering,1500000,2018-05-30,True,5.0
+E107,David Black,,58000,2023-02-14,False,3.2
+E108,Fiona Blue,Sales,72000,2020-10-05,True,4.0
+E108,Fiona Blue,Sales,72000,2020-10-05,True,4.0
+E109,George Red,Human Resources,55000,2022-04-18,False,3.5
+E110,Hannah Gold,Finance,95000,,True,4.7
